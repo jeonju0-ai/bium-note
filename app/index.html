@@ -43,7 +43,7 @@
   .time-btn.selected span { color: #7c5cb0; }
 
   /* 자연음 선택 */
-  .sound-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .sound-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .sound-btn {
     padding: 14px 0; border: 1px solid #222; border-radius: 12px;
     background: #111; color: #666; font-size: 22px; cursor: pointer;
@@ -201,6 +201,7 @@
         <button class="sound-btn" onclick="previewSound('wave', this)">🌊<span>파도</span></button>
         <button class="sound-btn" onclick="previewSound('stream', this)">🏞️<span>시냇물</span></button>
         <button class="sound-btn" onclick="previewSound('forest', this)">🌿<span>숲속</span></button>
+        <button class="sound-btn" onclick="previewSound('none', this)">🔇<span>무음</span></button>
       </div>
     </div>
 
@@ -297,7 +298,9 @@
   let remainSeconds = 0;
   let totalSeconds = 0;
   let audioCtx = null;
-  let soundNode = null;
+  let currentSrc = null;
+  let currentMaster = null;
+  let previewTimer = null;
   let dimTimeout = null;
   let wakeLock = null;
   let completedDuration = 0;
@@ -340,179 +343,70 @@
     return buf;
   }
 
-  function startNatureSound(type) {
+  function stopAllSound() {
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    if (currentMaster && audioCtx) {
+      try {
+        currentMaster.gain.cancelScheduledValues(audioCtx.currentTime);
+        currentMaster.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+      } catch {}
+    }
+    const src = currentSrc, master = currentMaster;
+    currentSrc = null; currentMaster = null;
+    setTimeout(() => { try { src && src.stop(); } catch {} try { master && master.disconnect(); } catch {} }, 600);
+    document.querySelectorAll(".sound-btn.previewing").forEach(b => b.classList.remove("previewing"));
+  }
+
+  function playSound(type, isPreview) {
+    stopAllSound();
+    if (type === "none") return;
+
     const ctx = getAudioCtx();
     const master = ctx.createGain();
-    master.gain.setValueAtTime(0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.6, ctx.currentTime + 2.5);
     master.connect(ctx.destination);
 
-    const pink = makePinkBuf(ctx, 5);
-    let mainSrc = null;
+    const src = ctx.createBufferSource();
+    src.buffer = makePinkBuf(ctx, 8);
+    src.loop = true;
 
+    const filt = ctx.createBiquadFilter();
+    src.connect(filt);
+    filt.connect(master);
+    src.start();
+
+    const now = ctx.currentTime;
     if (type === "rain") {
-      // 배경 잔잔한 비 (핑크노이즈 밴드패스)
-      const base = ctx.createBufferSource();
-      base.buffer = pink; base.loop = true;
-      const bf = ctx.createBiquadFilter();
-      bf.type = "bandpass"; bf.frequency.value = 700; bf.Q.value = 0.4;
-      const bg = ctx.createGain(); bg.gain.value = 0.35;
-      base.connect(bf); bf.connect(bg); bg.connect(master);
-      base.start();
-      mainSrc = base;
-
-      // 물방울 똑똑: 랜덤 임펄스
-      function drop() {
-        if (!soundNode) return;
-        const t = ctx.currentTime + Math.random() * 0.3;
-        const freq = 900 + Math.random() * 1400;
-        const osc = ctx.createOscillator();
-        const env = ctx.createGain();
-        const filt = ctx.createBiquadFilter();
-        filt.type = "bandpass"; filt.frequency.value = freq; filt.Q.value = 8;
-        osc.type = "sine"; osc.frequency.value = freq;
-        env.gain.setValueAtTime(0, t);
-        env.gain.linearRampToValueAtTime(0.06 + Math.random()*0.05, t + 0.003);
-        env.gain.exponentialRampToValueAtTime(0.001, t + 0.06 + Math.random()*0.08);
-        osc.connect(filt); filt.connect(env); env.connect(master);
-        osc.start(t); osc.stop(t + 0.18);
-        setTimeout(drop, 80 + Math.random() * 500);
-      }
-      setTimeout(drop, 400);
-
+      filt.type = "bandpass"; filt.frequency.value = 800; filt.Q.value = 0.5;
+      master.gain.setValueAtTime(0, now);
+      master.gain.linearRampToValueAtTime(0.45, now + 1.5);
     } else if (type === "wave") {
-      // 파도: 스르르(밀려옴) + 철썩(부서짐) 8초 주기
-      const swell = ctx.createBufferSource();
-      swell.buffer = pink; swell.loop = true;
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass"; lp.frequency.value = 320;
-      const swg = ctx.createGain(); swg.gain.value = 0;
-      swell.connect(lp); lp.connect(swg); swg.connect(master);
-      swell.start();
-      mainSrc = swell;
-
-      const crash = ctx.createBufferSource();
-      crash.buffer = pink; crash.loop = true;
-      const hp = ctx.createBiquadFilter();
-      hp.type = "bandpass"; hp.frequency.value = 800; hp.Q.value = 0.6;
-      const crg = ctx.createGain(); crg.gain.value = 0;
-      crash.connect(hp); hp.connect(crg); crg.connect(master);
-      crash.start();
-
-      function wave(t) {
-        if (!soundNode) return;
-        // 스르르 밀려옴 (0~5초)
-        swg.gain.setValueAtTime(0.01, t);
-        swg.gain.linearRampToValueAtTime(0.55, t + 4.5);
-        lp.frequency.setValueAtTime(200, t);
-        lp.frequency.linearRampToValueAtTime(450, t + 4.5);
-        // 철썩 (5~5.8초)
-        crg.gain.setValueAtTime(0, t + 4.5);
-        crg.gain.linearRampToValueAtTime(0.4, t + 5.0);
-        crg.gain.exponentialRampToValueAtTime(0.001, t + 5.8);
-        // 물러감 (5.8~9초)
-        swg.gain.setValueAtTime(0.45, t + 5.8);
-        swg.gain.exponentialRampToValueAtTime(0.01, t + 9);
-        setTimeout(() => wave(ctx.currentTime), 9000);
+      filt.type = "lowpass"; filt.frequency.value = 380; filt.Q.value = 0.4;
+      for (let i = 0; i < 20; i++) {
+        const t = now + i * 9;
+        master.gain.setValueAtTime(i === 0 ? 0 : 0.04, t);
+        master.gain.linearRampToValueAtTime(0.50, t + 4.5);
+        master.gain.linearRampToValueAtTime(0.04, t + 8.5);
       }
-      wave(ctx.currentTime + 0.3);
-
     } else if (type === "stream") {
-      // 시냇물: 여러 밴드 합성으로 졸졸졸
-      const bands = [
-        {freq:500, Q:2.5, g:0.22},
-        {freq:900, Q:3.5, g:0.18},
-        {freq:1500, Q:4, g:0.14},
-        {freq:2500, Q:3, g:0.10},
-        {freq:300, Q:2, g:0.18},
-      ];
-      const srcs = bands.map(({freq,Q,g}, i) => {
-        const src = ctx.createBufferSource();
-        src.buffer = pink; src.loop = true;
-        src.loopStart = i * 0.7;
-        const filt = ctx.createBiquadFilter();
-        filt.type = "bandpass"; filt.frequency.value = freq; filt.Q.value = Q;
-        const gain = ctx.createGain(); gain.gain.value = g;
-        src.connect(filt); filt.connect(gain); gain.connect(master);
-        src.start(0, src.loopStart);
-        return src;
-      });
-      // 잔물결 — 작은 진폭 변조
-      function ripple(src, gain) {
-        if (!soundNode) return;
-        const t = ctx.currentTime;
-        gain.gain.setValueAtTime(gain.gain.value, t);
-        gain.gain.linearRampToValueAtTime(gain.gain.value * (0.7 + Math.random()*0.6), t + 0.3 + Math.random()*0.5);
-        setTimeout(() => ripple(src, gain), 200 + Math.random()*400);
-      }
-      mainSrc = srcs[0];
-
+      filt.type = "bandpass"; filt.frequency.value = 1100; filt.Q.value = 2;
+      master.gain.setValueAtTime(0, now);
+      master.gain.linearRampToValueAtTime(0.50, now + 1.5);
     } else {
-      // 숲속: 바람 살랑 + 꾀꼬리
-      const wind = ctx.createBufferSource();
-      wind.buffer = pink; wind.loop = true;
-      const wf = ctx.createBiquadFilter();
-      wf.type = "bandpass"; wf.frequency.value = 250; wf.Q.value = 0.7;
-      const wg = ctx.createGain(); wg.gain.value = 0.25;
-      wind.connect(wf); wf.connect(wg); wg.connect(master);
-      wind.start();
-      mainSrc = wind;
-
-      // 바람 살랑거림 (진폭 천천히 변조)
-      function sway() {
-        if (!soundNode) return;
-        const t = ctx.currentTime;
-        const v = 0.15 + Math.random() * 0.2;
-        wg.gain.linearRampToValueAtTime(v, t + 1.5 + Math.random()*2);
-        setTimeout(sway, 1500 + Math.random()*2000);
-      }
-      sway();
-
-      // 꾀꼬리: 맑고 청아한 2음절 FM 합성
-      function oriole() {
-        if (!soundNode) return;
-        const t = ctx.currentTime + 0.1;
-        // 꾀~꼴~ (상행 글라이드 후 하행)
-        const notes = [
-          {f:1050, tf:1350, dur:0.22, amp:0.07},
-          {f:1350, tf:1100, dur:0.30, amp:0.065},
-        ];
-        let nt = t;
-        notes.forEach(({f, tf, dur, amp}) => {
-          const osc = ctx.createOscillator();
-          const mod = ctx.createOscillator();
-          const mg = ctx.createGain();
-          const env = ctx.createGain();
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(f, nt);
-          osc.frequency.linearRampToValueAtTime(tf, nt + dur);
-          mod.frequency.value = f * 0.25;
-          mg.gain.value = f * 0.15;
-          mod.connect(mg); mg.connect(osc.frequency);
-          env.gain.setValueAtTime(0, nt);
-          env.gain.linearRampToValueAtTime(amp, nt + 0.025);
-          env.gain.setValueAtTime(amp, nt + dur - 0.04);
-          env.gain.exponentialRampToValueAtTime(0.001, nt + dur);
-          osc.connect(env); env.connect(master);
-          mod.start(nt); osc.start(nt);
-          mod.stop(nt + dur + 0.05); osc.stop(nt + dur + 0.05);
-          nt += dur * 0.85;
-        });
-        setTimeout(oriole, 5000 + Math.random() * 9000);
-      }
-      setTimeout(oriole, 2000 + Math.random()*3000);
+      filt.type = "bandpass"; filt.frequency.value = 350; filt.Q.value = 0.6;
+      master.gain.setValueAtTime(0, now);
+      master.gain.linearRampToValueAtTime(0.40, now + 2.0);
     }
 
-    soundNode = { src: mainSrc, masterGain: master };
+    currentSrc = src;
+    currentMaster = master;
+
+    if (isPreview) {
+      previewTimer = setTimeout(() => stopAllSound(), 5000);
+    }
   }
 
-  function stopNatureSound() {
-    if (!soundNode) return;
-    try {
-      soundNode.masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1);
-      setTimeout(() => { try { soundNode.src.stop(); } catch {} soundNode = null; }, 1100);
-    } catch { soundNode = null; }
-  }
+  function startNatureSound(type) { playSound(type, false); }
+  function stopNatureSound() { stopAllSound(); }
 
   // ── 화면 어둡게 ──
   function dimScreen() {
@@ -680,159 +574,21 @@
     btn.classList.add("selected");
   }
 
-  function selectSound(type, btn) {
+  function previewSound(type, btn) {
+    if (document.getElementById("meditateScreen").classList.contains("active")) {
+      selectedSound = type;
+      document.querySelectorAll(".sound-btn").forEach(b => b.classList.remove("selected", "previewing"));
+      btn.classList.add("selected");
+      return;
+    }
     selectedSound = type;
     document.querySelectorAll(".sound-btn").forEach(b => b.classList.remove("selected", "previewing"));
     btn.classList.add("selected");
-  }
-
-  let previewNode = null;
-  let previewTimer = null;
-
-  function stopPreview() {
-    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
-    if (previewNode) {
-      try {
-        const g = previewNode.masterGain;
-        const ctx = audioCtx;
-        if (ctx) {
-          g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-          setTimeout(() => { try { previewNode.src.stop(); } catch {} previewNode = null; }, 600);
-        }
-      } catch { previewNode = null; }
+    if (type !== "none") {
+      btn.classList.add("previewing");
+      playSound(type, true);
+      setTimeout(() => btn.classList.remove("previewing"), 5000);
     }
-    document.querySelectorAll(".sound-btn.previewing").forEach(b => b.classList.remove("previewing"));
-  }
-
-  function previewSound(type, btn) {
-    // 명상 중에는 소리 선택만
-    if (document.getElementById("meditateScreen").classList.contains("active")) {
-      selectSound(type, btn); return;
-    }
-
-    stopPreview();
-    selectSound(type, btn);
-    btn.classList.add("previewing");
-
-    // 미리듣기용 별도 오디오 체인
-    const ctx = getAudioCtx();
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.8);
-    master.connect(ctx.destination);
-
-    const pink = makePinkBuf(ctx, 5);
-    let mainSrc = null;
-
-    if (type === "rain") {
-      const base = ctx.createBufferSource();
-      base.buffer = pink; base.loop = true;
-      const bf = ctx.createBiquadFilter();
-      bf.type = "bandpass"; bf.frequency.value = 700; bf.Q.value = 0.4;
-      const bg = ctx.createGain(); bg.gain.value = 0.35;
-      base.connect(bf); bf.connect(bg); bg.connect(master);
-      base.start();
-      mainSrc = base;
-      function drop() {
-        if (!previewNode) return;
-        const t = ctx.currentTime + Math.random() * 0.3;
-        const freq = 900 + Math.random() * 1400;
-        const osc = ctx.createOscillator();
-        const env = ctx.createGain();
-        const filt = ctx.createBiquadFilter();
-        filt.type = "bandpass"; filt.frequency.value = freq; filt.Q.value = 8;
-        osc.type = "sine"; osc.frequency.value = freq;
-        env.gain.setValueAtTime(0, t);
-        env.gain.linearRampToValueAtTime(0.06 + Math.random()*0.05, t + 0.003);
-        env.gain.exponentialRampToValueAtTime(0.001, t + 0.06 + Math.random()*0.08);
-        osc.connect(filt); filt.connect(env); env.connect(master);
-        osc.start(t); osc.stop(t + 0.18);
-        setTimeout(drop, 80 + Math.random() * 500);
-      }
-      setTimeout(drop, 300);
-
-    } else if (type === "wave") {
-      const swell = ctx.createBufferSource();
-      swell.buffer = pink; swell.loop = true;
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass"; lp.frequency.value = 320;
-      const swg = ctx.createGain(); swg.gain.value = 0;
-      swell.connect(lp); lp.connect(swg); swg.connect(master);
-      swell.start();
-      mainSrc = swell;
-      const t = ctx.currentTime;
-      swg.gain.setValueAtTime(0.01, t);
-      swg.gain.linearRampToValueAtTime(0.55, t + 3);
-      lp.frequency.setValueAtTime(200, t);
-      lp.frequency.linearRampToValueAtTime(450, t + 3);
-      const crash = ctx.createBufferSource();
-      crash.buffer = pink; crash.loop = true;
-      const hp = ctx.createBiquadFilter();
-      hp.type = "bandpass"; hp.frequency.value = 800; hp.Q.value = 0.6;
-      const crg = ctx.createGain(); crg.gain.value = 0;
-      crash.connect(hp); hp.connect(crg); crg.connect(master);
-      crash.start();
-      crg.gain.setValueAtTime(0, t + 3);
-      crg.gain.linearRampToValueAtTime(0.35, t + 3.5);
-      crg.gain.exponentialRampToValueAtTime(0.001, t + 4.5);
-
-    } else if (type === "stream") {
-      const bands = [
-        {freq:500,Q:2.5,g:0.22},{freq:900,Q:3.5,g:0.18},
-        {freq:1500,Q:4,g:0.14},{freq:300,Q:2,g:0.18},
-      ];
-      const srcs = bands.map(({freq,Q,g}, i) => {
-        const src = ctx.createBufferSource();
-        src.buffer = pink; src.loop = true; src.loopStart = i * 0.7;
-        const filt = ctx.createBiquadFilter();
-        filt.type = "bandpass"; filt.frequency.value = freq; filt.Q.value = Q;
-        const gain = ctx.createGain(); gain.gain.value = g;
-        src.connect(filt); filt.connect(gain); gain.connect(master);
-        src.start(0, src.loopStart);
-        return src;
-      });
-      mainSrc = srcs[0];
-
-    } else {
-      const wind = ctx.createBufferSource();
-      wind.buffer = pink; wind.loop = true;
-      const wf = ctx.createBiquadFilter();
-      wf.type = "bandpass"; wf.frequency.value = 250; wf.Q.value = 0.7;
-      const wg = ctx.createGain(); wg.gain.value = 0.25;
-      wind.connect(wf); wf.connect(wg); wg.connect(master);
-      wind.start();
-      mainSrc = wind;
-      const t = ctx.currentTime + 1.5;
-      const osc1 = ctx.createOscillator(); const osc2 = ctx.createOscillator();
-      const mod1 = ctx.createOscillator(); const mod2 = ctx.createOscillator();
-      [
-        {osc:osc1, mod:mod1, f:1050, tf:1350, dur:0.22, amp:0.07, t:t},
-        {osc:osc2, mod:mod2, f:1350, tf:1100, dur:0.30, amp:0.065, t:t+0.19},
-      ].forEach(({osc, mod, f, tf, dur, amp, t:nt}) => {
-        const mg = ctx.createGain(); const env = ctx.createGain();
-        osc.type = "sine"; osc.frequency.setValueAtTime(f, nt); osc.frequency.linearRampToValueAtTime(tf, nt+dur);
-        mod.frequency.value = f*0.25; mg.gain.value = f*0.15;
-        mod.connect(mg); mg.connect(osc.frequency);
-        env.gain.setValueAtTime(0, nt); env.gain.linearRampToValueAtTime(amp, nt+0.025);
-        env.gain.setValueAtTime(amp, nt+dur-0.04); env.gain.exponentialRampToValueAtTime(0.001, nt+dur);
-        osc.connect(env); env.connect(master);
-        mod.start(nt); osc.start(nt); mod.stop(nt+dur+0.05); osc.stop(nt+dur+0.05);
-      });
-    }
-
-    previewNode = { src: mainSrc, masterGain: master };
-
-    // 4.2초 후 페이드아웃 → 5초에 완전 종료
-    previewTimer = setTimeout(() => {
-      if (previewNode) {
-        master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
-        setTimeout(() => {
-          try { mainSrc && mainSrc.stop(); } catch {}
-          previewNode = null;
-          btn.classList.remove("previewing");
-        }, 900);
-      }
-    }, 4200);
   }
 
   // ── 서버 연결 ──
