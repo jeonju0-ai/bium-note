@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>비움노트</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #0a0a0a; color: #fff; font-family: -apple-system, sans-serif; }
+
+  .app { display: flex; flex-direction: column; height: 100vh; max-width: 480px; margin: 0 auto; }
+
+  /* 헤더 */
+  .header { padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .logo { font-size: 18px; font-weight: 700; color: #a78bfa; cursor: pointer; }
+  .logo span { color: #60a5fa; }
+  .gear { background: none; border: none; color: #333; font-size: 20px; cursor: pointer; padding: 4px; }
+
+  /* 탭 */
+  .tabs { display: flex; margin: 12px 20px 0; border-bottom: 1px solid #1a1a1a; flex-shrink: 0; }
+  .tab { flex: 1; padding: 10px; background: none; border: none; color: #444; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab.active { color: #a78bfa; border-bottom-color: #a78bfa; }
+
+  /* 패널 공통 */
+  .panel { display: none; flex: 1; overflow-y: auto; }
+  .panel.active { display: flex; flex-direction: column; }
+
+  /* ── 명상 패널 ── */
+  #panel-meditate { padding: 24px 20px; gap: 24px; }
+
+  .section-label { font-size: 11px; color: #444; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+
+  /* 시간 선택 */
+  .time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .time-btn {
+    padding: 14px 0; border: 1px solid #222; border-radius: 12px;
+    background: #111; color: #888; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .time-btn.selected { border-color: #a78bfa; background: #1a0a2e; color: #a78bfa; }
+  .time-btn span { display: block; font-size: 10px; font-weight: 400; color: #444; margin-top: 2px; }
+  .time-btn.selected span { color: #7c5cb0; }
+
+  /* 자연음 선택 */
+  .sound-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sound-btn {
+    padding: 14px 0; border: 1px solid #222; border-radius: 12px;
+    background: #111; color: #666; font-size: 22px; cursor: pointer;
+    text-align: center; transition: all 0.15s;
+  }
+  .sound-btn span { display: block; font-size: 10px; color: #444; margin-top: 4px; }
+  .sound-btn.selected { border-color: #60a5fa; background: #0a1a2e; }
+  .sound-btn.selected span { color: #60a5fa; }
+
+  /* 시작 버튼 */
+  .start-btn {
+    width: 100%; padding: 18px; border: none; border-radius: 16px;
+    background: linear-gradient(135deg, #7c3aed, #3b82f6);
+    color: #fff; font-size: 17px; font-weight: 600; cursor: pointer;
+    margin-top: auto;
+  }
+  .start-btn:disabled { background: #1a1a1a; color: #333; cursor: default; }
+
+  /* ── 명상 중 화면 ── */
+  .meditate-screen {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: #000; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.8s ease;
+  }
+  .meditate-screen.active { display: flex; }
+  .meditate-screen.dimmed { opacity: 0.05; }
+
+  .timer-circle {
+    width: 200px; height: 200px; border-radius: 50%;
+    border: 2px solid #2a1a4a; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; position: relative;
+  }
+  .timer-svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .timer-progress {
+    fill: none; stroke: #7c3aed; stroke-width: 2;
+    stroke-dasharray: 565; stroke-dashoffset: 0;
+    transition: stroke-dashoffset 1s linear;
+    stroke-linecap: round;
+  }
+  .timer-time { font-size: 42px; font-weight: 200; color: #fff; letter-spacing: -1px; }
+  .timer-label { font-size: 12px; color: #444; margin-top: 4px; }
+  .touch-hint { position: absolute; bottom: 60px; font-size: 12px; color: #222; }
+  .stop-btn {
+    position: absolute; bottom: 30px; background: none; border: 1px solid #1a1a1a;
+    color: #333; font-size: 13px; padding: 8px 20px; border-radius: 20px; cursor: pointer;
+  }
+
+  /* ── 마음일기 입력 (명상 후) ── */
+  .diary-screen {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: #0a0a0a; flex-direction: column; padding: 40px 24px 30px;
+  }
+  .diary-screen.active { display: flex; }
+  .diary-title { font-size: 20px; font-weight: 600; color: #a78bfa; margin-bottom: 6px; }
+  .diary-sub { font-size: 13px; color: #444; margin-bottom: 24px; }
+  .diary-input {
+    flex: 1; background: #111; border: 1px solid #222; border-radius: 14px;
+    padding: 16px; color: #ddd; font-size: 15px; line-height: 1.7;
+    resize: none; outline: none; font-family: inherit;
+  }
+  .diary-input::placeholder { color: #333; }
+  .diary-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .diary-skip { flex: 1; padding: 14px; border: 1px solid #222; border-radius: 12px; background: none; color: #444; font-size: 15px; cursor: pointer; }
+  .diary-save { flex: 2; padding: 14px; border: none; border-radius: 12px; background: #7c3aed; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+
+  /* ── 마음일기 기록 패널 ── */
+  #panel-diary { padding: 16px; gap: 10px; }
+  .diary-empty { text-align: center; color: #333; font-size: 14px; padding: 60px 20px; }
+  .diary-item {
+    background: #111; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 14px 16px; cursor: pointer;
+  }
+  .diary-item:active { background: #161616; }
+  .diary-item .di-duration { font-size: 11px; color: #7c3aed; margin-bottom: 6px; }
+  .diary-item .di-title { font-size: 14px; color: #ddd; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .diary-item .di-body { font-size: 12px; color: #555; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .diary-item .di-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .diary-item .di-file { font-size: 10px; color: #2a2a2a; }
+  .diary-item .di-del { background: none; border: none; font-size: 13px; color: #2a2a2a; cursor: pointer; padding: 2px 4px; }
+
+  /* 상세 모달 */
+  .detail-modal { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.9); padding: 20px; overflow-y: auto; }
+  .detail-modal.open { display: flex; flex-direction: column; }
+  .detail-modal .dm-card { background: #111; border: 1px solid #222; border-radius: 16px; padding: 20px; flex: 1; }
+  .detail-modal .dm-duration { font-size: 12px; color: #7c3aed; margin-bottom: 10px; }
+  .detail-modal .dm-title { font-size: 16px; font-weight: 600; color: #fff; line-height: 1.5; margin-bottom: 14px; }
+  .detail-modal .dm-body { font-size: 14px; color: #aaa; line-height: 1.8; white-space: pre-wrap; margin-bottom: 16px; }
+  .detail-modal .dm-gemini { background: #0a0a1a; border: 1px solid #2e1a5e; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .detail-modal .dm-gemini-label { font-size: 11px; color: #7c3aed; font-weight: 600; margin-bottom: 8px; }
+  .detail-modal .dm-gemini-text { font-size: 13px; color: #c4b5fd; line-height: 1.8; white-space: pre-wrap; }
+  .detail-modal .dm-btns { display: flex; gap: 10px; margin-top: 14px; }
+  .detail-modal .dm-close { flex: 1; padding: 14px; border: none; border-radius: 10px; background: #1a1a1a; color: #666; font-size: 15px; cursor: pointer; }
+  .detail-modal .dm-del { padding: 14px 20px; border: none; border-radius: 10px; background: #1a0a0a; color: #444; font-size: 15px; cursor: pointer; }
+
+  /* 설정 */
+  .settings-panel { display: none; position: fixed; inset: 0; z-index: 300; background: #0a0a0a; padding: 40px 24px 30px; overflow-y: auto; }
+  .settings-panel.open { display: block; }
+  .settings-panel h2 { font-size: 18px; font-weight: 600; margin-bottom: 24px; color: #a78bfa; }
+  .token-label { font-size: 12px; color: #555; margin-bottom: 8px; }
+  .token-input { width: 100%; background: #111; border: 1px solid #222; border-radius: 10px; padding: 12px 14px; color: #fff; font-size: 18px; letter-spacing: 0.2em; outline: none; margin-bottom: 16px; }
+  .test-btn { background: #1a0a2e; border: 1px solid #3a1a5e; color: #a78bfa; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #333; margin-right: 6px; }
+  .status-dot.ok { background: #22c55e; }
+  .status-dot.err { background: #ef4444; }
+  .hint { font-size: 12px; color: #333; line-height: 1.8; margin-top: 16px; }
+  .close-btn { width: 100%; margin-top: 24px; padding: 14px; border: 1px solid #222; border-radius: 12px; background: none; color: #555; font-size: 15px; cursor: pointer; }
+
+  /* 토스트 */
+  .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: #ccc; padding: 10px 20px; border-radius: 20px; font-size: 13px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; white-space: nowrap; }
+  .toast.show { opacity: 1; }
+
+  /* 저장 결과 카드 (명상 탭) */
+  .result-card { display: none; border-radius: 14px; overflow: hidden; }
+  .result-card.show { display: block; }
+  .result-saved { background: #0a1a0a; border: 1px solid #1a3a1a; padding: 14px 16px; }
+  .result-saved .label { font-size: 13px; color: #4ade80; margin-bottom: 4px; }
+  .result-saved .filename { font-size: 11px; color: #2a4a2a; }
+  .result-gemini { background: #0a0a1a; border: 1px solid #2e1a5e; padding: 14px 16px; }
+  .result-gemini .g-label { font-size: 11px; color: #7c3aed; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .result-gemini .g-text { font-size: 13px; color: #c4b5fd; line-height: 1.7; }
+  .result-gemini .g-loading { color: #2a2a4a; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo" onclick="location.reload()" >🫧 비움<span>노트</span></div>
+    <button class="gear" onclick="openSettings()">⚙️</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('meditate', this)">🧘 명상</button>
+    <button class="tab" onclick="switchTab('diary', this)">📖 마음일기</button>
+  </div>
+
+  <!-- 명상 패널 -->
+  <div class="panel active" id="panel-meditate">
+    <div>
+      <div class="section-label">명상 시간</div>
+      <div class="time-grid">
+        <button class="time-btn" onclick="selectTime(1, this)">1<span>분</span></button>
+        <button class="time-btn selected" onclick="selectTime(3, this)">3<span>분</span></button>
+        <button class="time-btn" onclick="selectTime(5, this)">5<span>분</span></button>
+        <button class="time-btn" onclick="selectTime(10, this)">10<span>분</span></button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">자연음</div>
+      <div class="sound-grid">
+        <button class="sound-btn selected" onclick="selectSound('rain', this)">🌧️<span>빗소리</span></button>
+        <button class="sound-btn" onclick="selectSound('wave', this)">🌊<span>파도</span></button>
+        <button class="sound-btn" onclick="selectSound('forest', this)">🌿<span>숲속</span></button>
+      </div>
+    </div>
+
+    <div class="result-card" id="resultCard">
+      <div class="result-saved" id="resultSaved">
+        <div class="label">✓ 마음일기가 저장됐어요</div>
+        <div class="filename" id="resultFilename"></div>
+      </div>
+      <div class="result-gemini" id="resultGemini">
+        <div class="g-label">💭 Gemini 마음 확장</div>
+        <div class="g-text" id="geminiText"></div>
+      </div>
+    </div>
+
+    <button class="start-btn" id="startBtn" onclick="startMeditation()">비우기 시작</button>
+  </div>
+
+  <!-- 마음일기 기록 패널 -->
+  <div class="panel" id="panel-diary">
+    <div class="diary-empty" id="diaryEmpty">기록을 불러오는 중...</div>
+  </div>
+</div>
+
+<!-- 명상 중 화면 -->
+<div class="meditate-screen" id="meditateScreen" onclick="handleScreenTouch()">
+  <div class="timer-circle">
+    <svg class="timer-svg" viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="90" fill="none" stroke="#111" stroke-width="2"/>
+      <circle class="timer-progress" id="timerProgress" cx="100" cy="100" r="90"/>
+    </svg>
+    <div class="timer-time" id="timerTime">3:00</div>
+    <div class="timer-label" id="timerLabel">잠시 비워보세요</div>
+  </div>
+  <div class="touch-hint" id="touchHint">화면을 터치하면 밝아져요</div>
+  <button class="stop-btn" id="stopBtn" onclick="stopMeditation(event)">중단</button>
+</div>
+
+<!-- 명상 후 마음일기 입력 -->
+<div class="diary-screen" id="diaryScreen">
+  <div class="diary-title">🌸 비움이 끝났어요</div>
+  <div class="diary-sub" id="diarySubLabel">잠깐, 지금 마음이 어때요?</div>
+  <textarea class="diary-input" id="diaryInput" placeholder="떠오르는 생각이나 감정을 자유롭게 적어보세요..."></textarea>
+  <div class="diary-actions">
+    <button class="diary-skip" onclick="skipDiary()">건너뛰기</button>
+    <button class="diary-save" onclick="saveDiary()">저장하기</button>
+  </div>
+</div>
+
+<!-- 상세 모달 -->
+<div class="detail-modal" id="detailModal" onclick="closeDetail(event)">
+  <div class="dm-card">
+    <div class="dm-duration" id="dmDuration"></div>
+    <div class="dm-title" id="dmTitle"></div>
+    <div class="dm-body" id="dmBody"></div>
+    <div class="dm-gemini" id="dmGemini" style="display:none">
+      <div class="dm-gemini-label">💭 Gemini 마음 확장</div>
+      <div class="dm-gemini-text" id="dmGeminiText"></div>
+    </div>
+    <div class="dm-btns">
+      <button class="dm-close" onclick="closeDetail()">닫기</button>
+      <button class="dm-del" onclick="deleteFromDetail()">🗑️</button>
+    </div>
+  </div>
+</div>
+
+<!-- 설정 -->
+<div class="settings-panel" id="settingsPanel">
+  <h2>⚙️ 설정</h2>
+  <div class="token-label">연결 토큰 — 서버 터미널에 표시된 6자리</div>
+  <input class="token-input" type="text" id="tokenInput" placeholder="a3f8k2" maxlength="6"/>
+  <div>
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText" style="font-size:13px;color:#555;">연결 안 됨</span>
+    <button class="test-btn" onclick="testConnection()" style="float:right">연결 테스트</button>
+  </div>
+  <div class="hint">
+    토큰 입력 후 자동 저장.<br>
+    집 와이파이 → 자동 직접 연결.<br>
+    밖·데이터 → 릴레이 경유 자동 연결.<br><br>
+    <b style="color:#a78bfa">토큰 확인:</b> 서버 터미널 상단에 표시됨.
+  </div>
+  <button class="close-btn" onclick="closeSettings()">닫기</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── 상태 ──
+  let selectedTime = 3;
+  let selectedSound = "rain";
+  let userToken = localStorage.getItem("bium-token") || "";
+  let serverUrl = null;
+  let timerInterval = null;
+  let remainSeconds = 0;
+  let totalSeconds = 0;
+  let audioCtx = null;
+  let soundNode = null;
+  let dimTimeout = null;
+  let wakeLock = null;
+  let completedDuration = 0;
+  let detailFilename = null;
+
+  // ── Web Audio ──
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playBell() {
+    const ctx = getAudioCtx();
+    const freqs = [220, 440, 528, 880];
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.25 / (i + 1), ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 4);
+    });
+  }
+
+  function startNatureSound(type) {
+    const ctx = getAudioCtx();
+    const bufSize = ctx.sampleRate * 3;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+
+    if (type === "rain") {
+      // 빗소리 — 핑크 노이즈
+      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0;
+      for (let i = 0; i < bufSize; i++) {
+        const wh = Math.random() * 2 - 1;
+        b0=0.99886*b0+wh*0.0555179; b1=0.99332*b1+wh*0.0750759;
+        b2=0.96900*b2+wh*0.1538520; b3=0.86650*b3+wh*0.3104856;
+        b4=0.55000*b4+wh*0.5329522; b5=-0.7616*b5-wh*0.0168980;
+        data[i] = (b0+b1+b2+b3+b4+b5+wh*0.5362) * 0.11;
+      }
+    } else if (type === "wave") {
+      // 파도소리 — 저주파 노이즈 + 진폭 변조
+      for (let i = 0; i < bufSize; i++) {
+        const wave = Math.sin(2 * Math.PI * i / (ctx.sampleRate * 4));
+        data[i] = (Math.random() * 2 - 1) * 0.15 * (0.5 + 0.5 * wave);
+      }
+    } else {
+      // 숲속 — 고주파 노이즈 (바람·새소리)
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * 0.06;
+      }
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = type === "forest" ? "highpass" : "lowpass";
+    filter.frequency.value = type === "forest" ? 800 : 600;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 2);
+
+    src.connect(filter); filter.connect(masterGain); masterGain.connect(ctx.destination);
+    src.start();
+    soundNode = { src, masterGain };
+  }
+
+  function stopNatureSound() {
+    if (!soundNode) return;
+    try {
+      soundNode.masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1);
+      setTimeout(() => { try { soundNode.src.stop(); } catch {} soundNode = null; }, 1100);
+    } catch { soundNode = null; }
+  }
+
+  // ── 화면 어둡게 ──
+  function dimScreen() {
+    document.getElementById("meditateScreen").classList.add("dimmed");
+    document.getElementById("touchHint").style.opacity = "0";
+    document.getElementById("stopBtn").style.opacity = "0";
+  }
+
+  function brightenScreen() {
+    const screen = document.getElementById("meditateScreen");
+    screen.classList.remove("dimmed");
+    document.getElementById("touchHint").style.opacity = "1";
+    document.getElementById("stopBtn").style.opacity = "1";
+    clearTimeout(dimTimeout);
+    dimTimeout = setTimeout(dimScreen, 3000);
+  }
+
+  function handleScreenTouch() {
+    brightenScreen();
+  }
+
+  // ── Wake Lock ──
+  async function requestWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release(); wakeLock = null; }
+  }
+
+  // ── 타이머 UI ──
+  function updateTimerUI(remain, total) {
+    const m = Math.floor(remain / 60);
+    const s = remain % 60;
+    document.getElementById("timerTime").textContent = `${m}:${String(s).padStart(2, "0")}`;
+    const progress = document.getElementById("timerProgress");
+    const circumference = 2 * Math.PI * 90;
+    const offset = circumference * (1 - remain / total);
+    progress.style.strokeDasharray = circumference;
+    progress.style.strokeDashoffset = offset;
+  }
+
+  // ── 명상 시작/종료 ──
+  async function startMeditation() {
+    totalSeconds = selectedTime * 60;
+    remainSeconds = totalSeconds;
+    completedDuration = selectedTime;
+
+    const screen = document.getElementById("meditateScreen");
+    screen.classList.add("active");
+    screen.classList.remove("dimmed");
+
+    await requestWakeLock();
+    playBell();
+    setTimeout(() => startNatureSound(selectedSound), 500);
+
+    updateTimerUI(remainSeconds, totalSeconds);
+
+    dimTimeout = setTimeout(dimScreen, 4000);
+
+    timerInterval = setInterval(() => {
+      remainSeconds--;
+      updateTimerUI(remainSeconds, totalSeconds);
+      if (remainSeconds <= 0) {
+        clearInterval(timerInterval);
+        finishMeditation();
+      }
+    }, 1000);
+  }
+
+  function finishMeditation() {
+    clearTimeout(dimTimeout);
+    releaseWakeLock();
+    stopNatureSound();
+    document.getElementById("meditateScreen").classList.remove("active", "dimmed");
+
+    playBell();
+    setTimeout(() => openDiaryScreen(), 1500);
+  }
+
+  function stopMeditation(e) {
+    e.stopPropagation();
+    clearInterval(timerInterval);
+    clearTimeout(dimTimeout);
+    releaseWakeLock();
+    stopNatureSound();
+    document.getElementById("meditateScreen").classList.remove("active", "dimmed");
+    completedDuration = selectedTime;
+    openDiaryScreen();
+  }
+
+  function openDiaryScreen() {
+    document.getElementById("diarySubLabel").textContent = `${completedDuration}분 명상을 마쳤어요. 지금 마음이 어때요?`;
+    document.getElementById("diaryInput").value = "";
+    document.getElementById("diaryScreen").classList.add("active");
+    setTimeout(() => document.getElementById("diaryInput").focus(), 300);
+  }
+
+  function skipDiary() {
+    document.getElementById("diaryScreen").classList.remove("active");
+    showToast("명상을 마쳤어요 🫧");
+  }
+
+  async function saveDiary() {
+    const text = document.getElementById("diaryInput").value.trim();
+    if (!text) { skipDiary(); return; }
+
+    document.getElementById("diaryScreen").classList.remove("active");
+
+    const resultCard = document.getElementById("resultCard");
+    document.getElementById("geminiText").textContent = "";
+    document.getElementById("resultGemini").querySelector(".g-loading")?.remove();
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "g-loading";
+    loadingEl.textContent = "Gemini가 마음을 살펴보는 중...";
+    document.getElementById("resultGemini").appendChild(loadingEl);
+    resultCard.classList.add("show");
+
+    const server = await resolveServer();
+    if (!server) { showToast("서버 연결 안 됨", "error"); resultCard.classList.remove("show"); return; }
+
+    try {
+      const res = await fetch(server + "/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, duration: completedDuration }),
+        signal: AbortSignal.timeout(30000)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById("resultFilename").textContent = data.filename;
+        loadingEl.remove();
+        if (data.gemini) {
+          document.getElementById("geminiText").textContent = data.gemini;
+        } else {
+          document.getElementById("resultGemini").style.display = "none";
+        }
+      } else {
+        showToast(data.error || "저장 실패", "error");
+        resultCard.classList.remove("show");
+      }
+    } catch {
+      showToast("저장 실패", "error");
+      resultCard.classList.remove("show");
+    }
+  }
+
+  // ── 탭 ──
+  function switchTab(name, btn) {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + name).classList.add("active");
+    if (name === "diary") loadDiary();
+  }
+
+  // ── 시간/소리 선택 ──
+  function selectTime(min, btn) {
+    selectedTime = min;
+    document.querySelectorAll(".time-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+  }
+
+  function selectSound(type, btn) {
+    selectedSound = type;
+    document.querySelectorAll(".sound-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+  }
+
+  // ── 서버 연결 ──
+  async function getLocalIP() {
+    return new Promise((resolve) => {
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel("");
+        pc.createOffer().then(o => pc.setLocalDescription(o));
+        pc.onicecandidate = e => {
+          if (!e.candidate) return;
+          const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+          if (m && !m[1].startsWith("127.")) { resolve(m[1]); pc.close(); }
+        };
+        setTimeout(() => resolve(null), 1200);
+      } catch { resolve(null); }
+    });
+  }
+
+  async function resolveServer() {
+    if (serverUrl) {
+      try {
+        const r = await fetch(serverUrl + "/ping", { signal: AbortSignal.timeout(2000) });
+        if ((await r.json()).ok) return serverUrl;
+      } catch {}
+      serverUrl = null;
+    }
+    const localIP = await getLocalIP();
+    if (localIP) {
+      try {
+        const r = await fetch(`http://${localIP}:3458/ping`, { signal: AbortSignal.timeout(2000) });
+        if ((await r.json()).ok) { serverUrl = `http://${localIP}:3458`; return serverUrl; }
+      } catch {}
+    }
+    if (userToken) {
+      try {
+        const r = await fetch(`https://seednote-relay.vercel.app/api/url?token=${userToken}`);
+        const d = await r.json();
+        if (d.url) {
+          const r2 = await fetch(d.url + "/ping", { signal: AbortSignal.timeout(5000) });
+          if ((await r2.json()).ok) { serverUrl = d.url; return serverUrl; }
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  // ── 기록 ──
+  async function loadDiary() {
+    const container = document.getElementById("panel-diary");
+    const empty = document.getElementById("diaryEmpty");
+    if (!empty) return;
+    empty.textContent = "기록을 불러오는 중...";
+    container.querySelectorAll(".diary-item").forEach(el => el.remove());
+
+    const server = await resolveServer();
+    if (!server) { empty.textContent = "설정에서 토큰을 먼저 입력하세요."; return; }
+
+    try {
+      const res = await fetch(server + "/history", { signal: AbortSignal.timeout(5000) });
+      const data = await res.json();
+      if (!data.ok || !data.items.length) { empty.textContent = "아직 저장된 마음일기가 없어요."; return; }
+      empty.style.display = "none";
+      data.items.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "diary-item";
+        div.innerHTML = `
+          <div class="di-duration">🧘 ${item.duration ? item.duration + "분 명상" : "명상"}</div>
+          <div class="di-title">${item.title}</div>
+          <div class="di-body">${item.body}</div>
+          <div class="di-footer">
+            <div class="di-file">${item.filename}</div>
+            <button class="di-del" onclick="deleteItem(event,'${item.filename}',this)">🗑️</button>
+          </div>`;
+        div.addEventListener("click", () => openDetail(item));
+        container.appendChild(div);
+      });
+    } catch {
+      empty.textContent = "기록을 불러오지 못했어요.";
+    }
+  }
+
+  async function deleteItem(e, filename, btn) {
+    e.stopPropagation();
+    if (!confirm("이 마음일기를 삭제할까요?")) return;
+    const server = await resolveServer();
+    if (!server) { showToast("서버 연결 안 됨", "error"); return; }
+    try {
+      const res = await fetch(server + "/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename }),
+        signal: AbortSignal.timeout(5000)
+      });
+      const data = await res.json();
+      if (data.ok) { btn.closest(".diary-item").remove(); showToast("삭제됐어요"); }
+      else showToast(data.error || "삭제 실패", "error");
+    } catch { showToast("삭제 실패", "error"); }
+  }
+
+  function openDetail(item) {
+    detailFilename = item.filename;
+    document.getElementById("dmDuration").textContent = item.duration ? `🧘 ${item.duration}분 명상 후` : "";
+    document.getElementById("dmTitle").textContent = item.title;
+    document.getElementById("dmBody").textContent = item.body;
+    const geminiEl = document.getElementById("dmGemini");
+    if (item.gemini) {
+      document.getElementById("dmGeminiText").textContent = item.gemini;
+      geminiEl.style.display = "block";
+    } else {
+      geminiEl.style.display = "none";
+    }
+    document.getElementById("detailModal").classList.add("open");
+  }
+
+  function closeDetail(e) {
+    if (e && e.target !== document.getElementById("detailModal")) return;
+    document.getElementById("detailModal").classList.remove("open");
+  }
+
+  async function deleteFromDetail() {
+    if (!detailFilename) return;
+    if (!confirm("이 마음일기를 삭제할까요?")) return;
+    const server = await resolveServer();
+    if (!server) { showToast("서버 연결 안 됨", "error"); return; }
+    try {
+      const res = await fetch(server + "/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: detailFilename }),
+        signal: AbortSignal.timeout(5000)
+      });
+      const data = await res.json();
+      if (data.ok) {
+        document.querySelectorAll(".diary-item").forEach(el => {
+          if (el.querySelector(".di-file")?.textContent === detailFilename) el.remove();
+        });
+        closeDetail();
+        showToast("삭제됐어요");
+      } else showToast(data.error || "삭제 실패", "error");
+    } catch { showToast("삭제 실패", "error"); }
+  }
+
+  // ── 설정 ──
+  function openSettings() {
+    document.getElementById("tokenInput").value = userToken;
+    document.getElementById("settingsPanel").classList.add("open");
+  }
+
+  function closeSettings() {
+    const val = document.getElementById("tokenInput").value.trim();
+    if (val !== userToken) {
+      userToken = val;
+      localStorage.setItem("bium-token", val);
+      serverUrl = null;
+    }
+    document.getElementById("settingsPanel").classList.remove("open");
+  }
+
+  async function testConnection() {
+    const val = document.getElementById("tokenInput").value.trim();
+    userToken = val;
+    localStorage.setItem("bium-token", val);
+    serverUrl = null;
+    const dot = document.getElementById("statusDot");
+    const txt = document.getElementById("statusText");
+    txt.textContent = "연결 중..."; dot.className = "status-dot";
+    const server = await resolveServer();
+    if (server) {
+      dot.className = "status-dot ok";
+      txt.textContent = "연결됨 ✓ " + server;
+    } else {
+      dot.className = "status-dot err";
+      txt.textContent = "연결 실패";
+    }
+  }
+
+  // ── 토스트 ──
+  function showToast(msg, type) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.background = type === "error" ? "#2a0a0a" : "#1a1a1a";
+    t.style.color = type === "error" ? "#ef4444" : "#ccc";
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2500);
+  }
+</script>
+</body>
+</html>
